@@ -17,15 +17,39 @@ jobs:
         repository: 'worawit/blutter'
     
     # ============================================
-    # 2. 安装系统依赖
+    # 2. 安装系统依赖（包括 Dart）
     # ============================================
     - name: Install system dependencies
       run: |
         brew update
-        brew install cmake ninja pkg-config icu4c capstone
+        brew install cmake ninja pkg-config icu4c capstone dart
     
     # ============================================
-    # 3. 设置 Python 虚拟环境
+    # 3. 验证 Dart 安装
+    # ============================================
+    - name: Verify Dart installation
+      run: |
+        echo "=== Dart version ==="
+        dart --version
+        echo ""
+        echo "=== Dart prefix ==="
+        DART_PREFIX=$(brew --prefix dart)
+        echo "DART_PREFIX: ${DART_PREFIX}"
+        echo ""
+        echo "=== Dart lib directory ==="
+        ls -la ${DART_PREFIX}/lib/ || echo "No lib directory"
+        echo ""
+        echo "=== Dart include directory ==="
+        ls -la ${DART_PREFIX}/include/ || echo "No include directory"
+        echo ""
+        echo "=== Finding Dart libraries ==="
+        find ${DART_PREFIX} -name "*.a" -o -name "*.dylib" | head -20
+        
+        # 保存路径
+        echo "DART_PREFIX=${DART_PREFIX}" >> $GITHUB_ENV
+    
+    # ============================================
+    # 4. 设置 Python 虚拟环境
     # ============================================
     - name: Setup Python virtual environment
       run: |
@@ -35,28 +59,7 @@ jobs:
         pip install pyelftools requests
     
     # ============================================
-    # 4. 下载 Dart 2.19.6 SDK（包含预编译库）
-    # ============================================
-    - name: Download Dart 2.19.6 SDK
-      run: |
-        # Dart 2.19.6 包含 libdart.a 等预编译库
-        curl -L -o dart.zip "https://storage.googleapis.com/dart-archive/channels/stable/release/2.19.6/sdk/dartsdk-macos-x64-release.zip"
-        unzip dart.zip
-        rm dart.zip
-        mv dart-sdk dart_sdk
-        
-        echo "✅ Dart 2.19.6 SDK downloaded"
-        echo "=== lib directory contents ==="
-        ls -la dart_sdk/lib/
-        echo ""
-        echo "=== Looking for .a files ==="
-        find dart_sdk -name "*.a" | head -10
-        echo ""
-        echo "=== Looking for .dylib files ==="
-        find dart_sdk -name "*.dylib" | head -10
-    
-    # ============================================
-    # 5. 🔧 生成 CMakeLists.txt
+    # 5. 🔧 生成 CMakeLists.txt（使用 Homebrew Dart）
     # ============================================
     - name: Generate CMakeLists.txt
       run: |
@@ -66,27 +69,34 @@ jobs:
         cmake_minimum_required (VERSION 3.20)
         project(blutter)
         
-        # 设置 Dart SDK 路径
-        set(DART_SDK_PATH "${PROJECT_SOURCE_DIR}/../dart_sdk")
-        message(STATUS "DART_SDK_PATH: ${DART_SDK_PATH}")
+        # 使用 Homebrew 的 Dart 路径
+        set(DART_PREFIX "/opt/homebrew/opt/dart")
         
-        # 查找 Dart 静态库
+        # 查找 Dart 库 - 搜索多个可能的位置
         find_library(DART_LIB
           NAMES dart dart_vm
           PATHS 
-            ${DART_SDK_PATH}/lib
-            ${DART_SDK_PATH}/lib/x64
-            ${DART_SDK_PATH}/lib/arm64
+            ${DART_PREFIX}/lib
+            ${DART_PREFIX}/lib/dart
+            /usr/local/lib
+            /usr/lib
           NO_DEFAULT_PATH
         )
         
         if (NOT DART_LIB)
-          message(FATAL_ERROR "Dart library not found in ${DART_SDK_PATH}/lib")
+          message(STATUS "Dart library not found in Homebrew path, trying system paths")
+          find_library(DART_LIB
+            NAMES dart dart_vm
+            PATHS /usr/local/lib /usr/lib
+          )
+        endif()
+        
+        if (NOT DART_LIB)
+          message(FATAL_ERROR "Dart library not found. Please install Dart with: brew install dart")
         endif()
         
         message(STATUS "Found Dart library: ${DART_LIB}")
         
-        # 设置可执行文件名
         set(BINNAME "blutter")
         set(CMAKE_INSTALL_PREFIX "${PROJECT_SOURCE_DIR}/../bin" CACHE PATH "" FORCE)
         set(CMAKE_CXX_STANDARD 20)
@@ -115,7 +125,7 @@ jobs:
         target_link_libraries(${BINNAME} PRIVATE ${DART_LIB} capstone)
         
         # 添加 Dart 头文件目录
-        target_include_directories(${BINNAME} PRIVATE ${DART_SDK_PATH}/include)
+        target_include_directories(${BINNAME} PRIVATE ${DART_PREFIX}/include)
         
         target_precompile_headers(${BINNAME} PRIVATE "${SRCDIR}/pch.h")
         
