@@ -35,40 +35,28 @@ jobs:
         pip install pyelftools requests
     
     # ============================================
-    # 4. 下载并设置 Dart SDK
+    # 4. 下载 Dart 2.19.6 SDK（包含预编译库）
     # ============================================
-    - name: Download and setup Dart SDK
+    - name: Download Dart 2.19.6 SDK
       run: |
-        ARCH=$(uname -m)
-        DART_VERSION="3.5.0"
-        
-        if [ "$ARCH" = "arm64" ]; then
-          DART_URL="https://storage.googleapis.com/dart-archive/channels/stable/release/${DART_VERSION}/sdk/dartsdk-macos-arm64-release.zip"
-        else
-          DART_URL="https://storage.googleapis.com/dart-archive/channels/stable/release/${DART_VERSION}/sdk/dartsdk-macos-x64-release.zip"
-        fi
-        
-        curl -L -o dart.zip "$DART_URL"
+        # Dart 2.19.6 包含 libdart.a 等预编译库
+        curl -L -o dart.zip "https://storage.googleapis.com/dart-archive/channels/stable/release/2.19.6/sdk/dartsdk-macos-x64-release.zip"
         unzip dart.zip
         rm dart.zip
         mv dart-sdk dart_sdk
         
-        echo "✅ Dart SDK downloaded"
-        
-        # 查找所有库文件
-        echo "=== Finding library files ==="
-        find dart_sdk -name "*.dylib" -o -name "*.a" | head -20
-        
-        # 检查 lib 目录
-        echo "=== lib directory ==="
-        ls -la dart_sdk/lib/ 2>/dev/null || echo "No lib directory"
-        
-        # 检查是否有 libdart 相关文件
-        echo "=== Searching for dart libraries ==="
-        find dart_sdk -name "*dart*" -type f | head -20
+        echo "✅ Dart 2.19.6 SDK downloaded"
+        echo "=== lib directory contents ==="
+        ls -la dart_sdk/lib/
+        echo ""
+        echo "=== Looking for .a files ==="
+        find dart_sdk -name "*.a" | head -10
+        echo ""
+        echo "=== Looking for .dylib files ==="
+        find dart_sdk -name "*.dylib" | head -10
     
     # ============================================
-    # 5. 🔧 生成正确的 CMakeLists.txt
+    # 5. 🔧 生成 CMakeLists.txt
     # ============================================
     - name: Generate CMakeLists.txt
       run: |
@@ -82,23 +70,23 @@ jobs:
         set(DART_SDK_PATH "${PROJECT_SOURCE_DIR}/../dart_sdk")
         message(STATUS "DART_SDK_PATH: ${DART_SDK_PATH}")
         
-        # 查找 dart 库 - 搜索整个 SDK 目录
+        # 查找 Dart 静态库
         find_library(DART_LIB
-          NAMES dart dart_vm dartdart
+          NAMES dart dart_vm
           PATHS 
             ${DART_SDK_PATH}/lib
-            ${DART_SDK_PATH}/lib/arm64
             ${DART_SDK_PATH}/lib/x64
-            ${DART_SDK_PATH}/bin
+            ${DART_SDK_PATH}/lib/arm64
           NO_DEFAULT_PATH
         )
         
         if (NOT DART_LIB)
-          message(FATAL_ERROR "Dart library not found in ${DART_SDK_PATH}")
+          message(FATAL_ERROR "Dart library not found in ${DART_SDK_PATH}/lib")
         endif()
         
         message(STATUS "Found Dart library: ${DART_LIB}")
         
+        # 设置可执行文件名
         set(BINNAME "blutter")
         set(CMAKE_INSTALL_PREFIX "${PROJECT_SOURCE_DIR}/../bin" CACHE PATH "" FORCE)
         set(CMAKE_CXX_STANDARD 20)
@@ -178,7 +166,7 @@ jobs:
         EOFCM
         
         echo "✅ CMakeLists.txt generated"
-        echo "=== CMakeLists.txt (lines 1-25) ==="
+        echo "=== CMakeLists.txt (first 25 lines) ==="
         head -25 CMakeLists.txt
     
     # ============================================
