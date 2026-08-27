@@ -1,0 +1,62 @@
+name: Build and Install Blutter
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  build-blutter:
+    runs-on: macos-26  # macOS Sequoia 对应 macos-15
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Checkout blutter
+      uses: actions/checkout@v4
+      with:
+        repository: 'worawit/blutter'
+        path: 'blutter'
+    
+    - name: Install XCode Command Line Tools
+      run: |
+        sudo xcode-select --install || true
+        sudo xcode-select -switch /Applications/Xcode.app/Contents/Developer || true
+    
+    - name: Install required tools via Homebrew
+      run: |
+        brew update
+        brew install cmake ninja pkg-config icu4c capstone
+    
+    - name: Install Python dependencies
+      run: |
+        pip3 install pyelftools requests
+    
+    - name: Build blutter
+      working-directory: ./blutter
+      run: |
+        mkdir -p build
+        cd build
+        cmake .. -DCMAKE_BUILD_TYPE=Release
+        make -j$(sysctl -n hw.ncpu)
+    
+    - name: Verify installation
+      working-directory: ./blutter
+      run: |
+        ls -la build/
+        file build/blutter || file build/libblutter.dylib
+        echo "Blutter built successfully!"
+    
+    - name: Upload blutter artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: blutter-macos
+        path: |
+          ./blutter/build/blutter
+          ./blutter/build/*.dylib
+          ./blutter/blutter.py
+          ./blutter/*.py
+        retention-days: 7
