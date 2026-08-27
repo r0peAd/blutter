@@ -1,70 +1,43 @@
-name: Build Blutter on macOS Tahoe
+name: Build Blutter
 
 on:
   workflow_dispatch:
 
 jobs:
-  build-blutter:
+  build:
     runs-on: macos-26
     
     steps:
-    - name: Checkout blutter
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
       with:
         repository: 'worawit/blutter'
     
-    - name: Install XCode Command Line Tools
-      run: |
-        sudo xcode-select --install || true
-    
-    - name: Install required tools via Homebrew
+    - name: Install dependencies
       run: |
         brew update
         brew install cmake ninja pkg-config icu4c capstone
-    
-    - name: Setup Python virtual environment
-      run: |
-        python3 -m venv blutter_env
-        source blutter_env/bin/activate
-        pip install --upgrade pip
+        brew tap dart-lang/dart
+        brew install dart
+        python3 -m venv venv
+        source venv/bin/activate
         pip install pyelftools requests
     
-    - name: Download and setup Dart SDK
+    - name: Build
       run: |
-        # 下载 Dart SDK (macOS ARM64)
-        DART_VERSION="3.5.0"  # 使用稳定的版本
-        curl -L -o dart.zip "https://storage.googleapis.com/dart-archive/channels/stable/release/${DART_VERSION}/sdk/dartsdk-macos-arm64-release.zip"
-        unzip dart.zip -d dart_sdk
-        rm dart.zip
-        echo "Dart SDK installed at: $(pwd)/dart_sdk"
-        ls -la dart_sdk/
-    
-    - name: Build blutter
-      run: |
-        source blutter_env/bin/activate
-        cd blutter  # 进入 blutter 子目录
-        
-        # 设置 Dart SDK 路径
-        DARTLIB=$(pwd)/../dart_sdk
-        echo "DARTLIB: ${DARTLIB}"
-        
+        source venv/bin/activate
+        cd blutter
+        DARTLIB=$(brew --prefix dart)/libexec
         mkdir -p build && cd build
-        
-        # 使用 DARTLIB 参数运行 CMake
-        cmake .. -DCMAKE_BUILD_TYPE=Release -DDARTLIB=${DARTLIB}
+        cmake .. -DCMAKE_BUILD_TYPE=Release -DDARTLIB=$DARTLIB
         make -j$(sysctl -n hw.ncpu)
-        
-        echo "Build artifacts:"
-        ls -la
     
-    - name: Upload artifacts
+    - name: Upload
       uses: actions/upload-artifact@v4
       with:
-        name: blutter-tahoe
+        name: blutter
         path: |
           ./blutter/build/blutter
           ./blutter/build/*.dylib
-          ./blutter/build/*.so
           ./blutter/blutter.py
           ./blutter/*.py
         retention-days: 7
