@@ -1,4 +1,4 @@
-name: Build Blutter on macOS Tahoe
+name: Build Blutter on macOS
 
 on:
   workflow_dispatch:
@@ -8,16 +8,25 @@ jobs:
     runs-on: macos-26
     
     steps:
+    # ============================================
+    # 1. 检出 Blutter 源码
+    # ============================================
     - name: Checkout blutter
       uses: actions/checkout@v4
       with:
         repository: 'worawit/blutter'
     
+    # ============================================
+    # 2. 安装系统依赖
+    # ============================================
     - name: Install system dependencies
       run: |
         brew update
         brew install cmake ninja pkg-config icu4c capstone
     
+    # ============================================
+    # 3. 设置 Python 虚拟环境
+    # ============================================
     - name: Setup Python virtual environment
       run: |
         python3 -m venv blutter_env
@@ -25,6 +34,9 @@ jobs:
         pip install --upgrade pip
         pip install pyelftools requests
     
+    # ============================================
+    # 4. 下载并设置 Dart SDK
+    # ============================================
     - name: Download and setup Dart SDK
       run: |
         ARCH=$(uname -m)
@@ -36,34 +48,80 @@ jobs:
           DART_URL="https://storage.googleapis.com/dart-archive/channels/stable/release/${DART_VERSION}/sdk/dartsdk-macos-x64-release.zip"
         fi
         
-        echo "Downloading Dart SDK..."
         curl -L -o dart.zip "$DART_URL"
         unzip dart.zip
         rm dart.zip
         mv dart-sdk dart_sdk
         
-        # 复制 dart 为 dartvm（不是符号链接）
-        cd dart_sdk/bin
-        cp dart dartvm
-        cd ../..
+        cp dart_sdk/bin/dart dart_sdk/bin/dartvm
+        chmod +x dart_sdk/bin/dartvm
         
-        echo "Dart SDK installed with dartvm copy"
-        ls -la dart_sdk/bin/ | grep -E "dart|dartvm"
+        echo "✅ Dart SDK ready"
+        ls -la dart_sdk/bin/dartvm
     
+    # ============================================
+    # 5. 🔧 修补 CMakeLists.txt（关键步骤！）
+    # ============================================
+    - name: 🔧 PATCH CMakeLists.txt
+      run: |
+        cd blutter
+        
+        echo "=== BEFORE PATCH ==="
+        cat CMakeLists.txt | head -20
+        
+        # 方法1：使用 sed 删除
+        sed -i '' '/if (NOT ${DARTLIB} MATCHES "^dartvm")/,/endif()/d' CMakeLists.txt
+        
+        # 如果 sed 没删掉，使用 Python 强制删除
+        python3 << 'EOF'
+        with open('CMakeLists.txt', 'r') as f:
+            lines = f.readlines()
+        
+        # 找到并删除 dartvm 检查块
+        new_lines = []
+        i = 0
+        while i < len(lines):
+            if 'if (NOT ${DARTLIB} MATCHES "^dartvm")' in lines[i]:
+                # 跳过直到 endif()
+                while i < len(lines) and 'endif()' not in lines[i]:
+                    i += 1
+                i += 1  # 跳过 endif()
+                continue
+            new_lines.append(lines[i])
+            i += 1
+        
+        with open('CMakeLists.txt', 'w') as f:
+            f.writelines(new_lines)
+        print("✅ Python patch applied")
+        EOF
+        
+        echo ""
+        echo "=== AFTER PATCH ==="
+        cat CMakeLists.txt | head -20
+        
+        # 验证
+        if grep -q "DARTLIB name should start with" CMakeLists.txt; then
+          echo "❌ PATCH FAILED!"
+          exit 1
+        else
+          echo "✅ PATCH SUCCESS!"
+        fi
+    
+    # ============================================
+    # 6. 编译 Blutter
+    # ============================================
     - name: Build blutter
       run: |
         source blutter_env/bin/activate
         cd blutter
         
-        # DARTLIB 指向复制的 dartvm
         DARTLIB=$(pwd)/../dart_sdk/bin/dartvm
         echo "DARTLIB: ${DARTLIB}"
         
         if [ -f "${DARTLIB}" ]; then
-          echo "dartvm found"
-          file ${DARTLIB}
+          echo "✅ dartvm found"
         else
-          echo "ERROR: dartvm not found"
+          echo "❌ dartvm not found"
           exit 1
         fi
         
@@ -71,13 +129,16 @@ jobs:
         cmake .. -DCMAKE_BUILD_TYPE=Release -DDARTLIB=${DARTLIB}
         make -j$(sysctl -n hw.ncpu)
         
-        echo "Build artifacts:"
+        echo "✅ Build completed!"
         ls -la
     
+    # ============================================
+    # 7. 上传构建产物
+    # ============================================
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: blutter-tahoe
+        name: blutter-macos
         path: |
           ./blutter/build/blutter
           ./blutter/build/*.dylib
