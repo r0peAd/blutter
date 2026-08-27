@@ -31,28 +31,40 @@ jobs:
         pip install pyelftools requests
     
     - name: Build blutter
-      working-directory: ./blutter
       run: |
-        source ../blutter_env/bin/activate
+        # 进入实际的源码目录（blutter 子目录）
+        cd blutter/blutter
+        source ../../blutter_env/bin/activate
+        
+        echo "Current directory: $(pwd)"
+        echo "Checking for CMakeLists.txt:"
+        ls -la | grep -i cmake
+        
+        # 创建并进入构建目录
         mkdir -p build
         cd build
+        
+        # 运行 CMake（父目录包含 CMakeLists.txt）
         cmake .. -DCMAKE_BUILD_TYPE=Release
         make -j$(sysctl -n hw.ncpu)
+        
+        echo "Build artifacts:"
+        ls -la
     
     - name: Test blutter
-      working-directory: ./blutter
       run: |
-        source ../blutter_env/bin/activate
-        python3 blutter.py --help || echo "Blutter built successfully"
+        cd blutter/blutter
+        source ../../blutter_env/bin/activate
+        python3 blutter.py --help || echo "Blutter ready"
     
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
         name: blutter-tahoe
         path: |
-          ./blutter/build/blutter
-          ./blutter/build/*.dylib
-          ./blutter/blutter.py
-          ./blutter/*.py
-          ./blutter_env/  # 可选：包含虚拟环境
+          ./blutter/blutter/build/blutter
+          ./blutter/blutter/build/*.dylib
+          ./blutter/blutter/build/*.so
+          ./blutter/blutter/blutter.py
+          ./blutter/blutter/*.py
         retention-days: 7
