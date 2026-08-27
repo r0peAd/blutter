@@ -30,63 +30,44 @@ jobs:
         ARCH=$(uname -m)
         DART_VERSION="3.5.0"
         
-        # 根据架构选择对应的 Dart SDK
         if [ "$ARCH" = "arm64" ]; then
           DART_URL="https://storage.googleapis.com/dart-archive/channels/stable/release/${DART_VERSION}/sdk/dartsdk-macos-arm64-release.zip"
         else
           DART_URL="https://storage.googleapis.com/dart-archive/channels/stable/release/${DART_VERSION}/sdk/dartsdk-macos-x64-release.zip"
         fi
         
-        echo "Downloading Dart SDK from: $DART_URL"
+        echo "Downloading Dart SDK..."
         curl -L -o dart.zip "$DART_URL"
-        unzip dart.zip -d .
+        unzip dart.zip
         rm dart.zip
-        
-        # 重命名 dart-sdk 为 dart_sdk
         mv dart-sdk dart_sdk
         
-        echo "Dart SDK installed at: $(pwd)/dart_sdk"
-        echo "Checking dartvm:"
-        ls -la dart_sdk/bin/ | grep -E "dartvm|dart"
-        
-        # 确保 dartvm 存在（Dart 3.x 中 dartvm 可能在 bin/ 目录）
-        if [ ! -f "dart_sdk/bin/dartvm" ]; then
-          echo "dartvm not found, creating symlink from dart to dartvm"
-          ln -sf dart_sdk/bin/dart dart_sdk/bin/dartvm
-        fi
-    
-    - name: Debug - Verify Dart SDK structure
-      run: |
-        echo "=== Dart SDK structure ==="
-        ls -la dart_sdk/
-        echo "=== Bin directory ==="
+        echo "Dart SDK installed"
         ls -la dart_sdk/bin/
-        echo "=== Looking for dartvm ==="
-        find dart_sdk -name "dartvm" 2>/dev/null || echo "dartvm not found"
-        echo "=== Looking for lib ==="
-        ls -la dart_sdk/lib/ | head -10
     
     - name: Build blutter
       run: |
         source blutter_env/bin/activate
         cd blutter
         
-        # 设置 DARTLIB 为 dart_sdk 根目录（包含 bin/、lib/ 等）
-        DARTLIB=$(pwd)/../dart_sdk
+        # DARTLIB 应该指向 dartvm 可执行文件的完整路径
+        # 在 Dart SDK 中，dartvm 就是 bin/dart
+        DARTLIB=$(pwd)/../dart_sdk/bin/dart
         echo "DARTLIB: ${DARTLIB}"
         
-        # 验证 DARTLIB 目录结构
-        echo "Checking DARTLIB contents:"
-        ls -la ${DARTLIB}/
+        # 验证 dartvm 存在
+        if [ -f "${DARTLIB}" ]; then
+          echo "dart executable found"
+          file ${DARTLIB}
+        else
+          echo "ERROR: dart executable not found"
+          ls -la $(pwd)/../dart_sdk/bin/
+          exit 1
+        fi
         
         mkdir -p build && cd build
-        
-        # 运行 CMake
         cmake .. -DCMAKE_BUILD_TYPE=Release -DDARTLIB=${DARTLIB}
         make -j$(sysctl -n hw.ncpu)
-        
-        echo "Build artifacts:"
-        ls -la
     
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
@@ -95,7 +76,6 @@ jobs:
         path: |
           ./blutter/build/blutter
           ./blutter/build/*.dylib
-          ./blutter/build/*.so
           ./blutter/blutter.py
           ./blutter/*.py
         retention-days: 7
