@@ -42,12 +42,12 @@ jobs:
         rm dart.zip
         mv dart-sdk dart_sdk
         
-        # 创建 dartvm 符号链接（关键步骤）
+        # 复制 dart 为 dartvm（不是符号链接）
         cd dart_sdk/bin
-        ln -sf dart dartvm
+        cp dart dartvm
         cd ../..
         
-        echo "Dart SDK installed with dartvm symlink"
+        echo "Dart SDK installed with dartvm copy"
         ls -la dart_sdk/bin/ | grep -E "dart|dartvm"
     
     - name: Build blutter
@@ -55,14 +55,13 @@ jobs:
         source blutter_env/bin/activate
         cd blutter
         
-        # DARTLIB 指向 dartvm 符号链接
+        # DARTLIB 指向复制的 dartvm
         DARTLIB=$(pwd)/../dart_sdk/bin/dartvm
         echo "DARTLIB: ${DARTLIB}"
         
-        # 验证
         if [ -f "${DARTLIB}" ]; then
           echo "dartvm found"
-          ls -la ${DARTLIB}
+          file ${DARTLIB}
         else
           echo "ERROR: dartvm not found"
           exit 1
