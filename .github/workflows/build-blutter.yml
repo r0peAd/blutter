@@ -1,43 +1,101 @@
-name: Build Blutter
+name: Build Blutter on macOS Tahoe
 
 on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-blutter:
     runs-on: macos-26
     
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout blutter
+      uses: actions/checkout@v4
       with:
         repository: 'worawit/blutter'
     
-    - name: Install dependencies
+    - name: Install system dependencies
       run: |
         brew update
         brew install cmake ninja pkg-config icu4c capstone
-        brew tap dart-lang/dart
-        brew install dart
-        python3 -m venv venv
-        source venv/bin/activate
+    
+    - name: Setup Python virtual environment
+      run: |
+        python3 -m venv blutter_env
+        source blutter_env/bin/activate
+        pip install --upgrade pip
         pip install pyelftools requests
     
-    - name: Build
+    - name: Download and setup Dart SDK
       run: |
-        source venv/bin/activate
-        cd blutter
-        DARTLIB=$(brew --prefix dart)/libexec
-        mkdir -p build && cd build
-        cmake .. -DCMAKE_BUILD_TYPE=Release -DDARTLIB=$DARTLIB
-        make -j$(sysctl -n hw.ncpu)
+        ARCH=$(uname -m)
+        DART_VERSION="3.5.0"
+        
+        # 根据架构选择对应的 Dart SDK
+        if [ "$ARCH" = "arm64" ]; then
+          DART_URL="https://storage.googleapis.com/dart-archive/channels/stable/release/${DART_VERSION}/sdk/dartsdk-macos-arm64-release.zip"
+        else
+          DART_URL="https://storage.googleapis.com/dart-archive/channels/stable/release/${DART_VERSION}/sdk/dartsdk-macos-x64-release.zip"
+        fi
+        
+        echo "Downloading Dart SDK from: $DART_URL"
+        curl -L -o dart.zip "$DART_URL"
+        unzip dart.zip -d .
+        rm dart.zip
+        
+        # 重命名 dart-sdk 为 dart_sdk
+        mv dart-sdk dart_sdk
+        
+        echo "Dart SDK installed at: $(pwd)/dart_sdk"
+        echo "Checking dartvm:"
+        ls -la dart_sdk/bin/ | grep -E "dartvm|dart"
+        
+        # 确保 dartvm 存在（Dart 3.x 中 dartvm 可能在 bin/ 目录）
+        if [ ! -f "dart_sdk/bin/dartvm" ]; then
+          echo "dartvm not found, creating symlink from dart to dartvm"
+          ln -sf dart_sdk/bin/dart dart_sdk/bin/dartvm
+        fi
     
-    - name: Upload
+    - name: Debug - Verify Dart SDK structure
+      run: |
+        echo "=== Dart SDK structure ==="
+        ls -la dart_sdk/
+        echo "=== Bin directory ==="
+        ls -la dart_sdk/bin/
+        echo "=== Looking for dartvm ==="
+        find dart_sdk -name "dartvm" 2>/dev/null || echo "dartvm not found"
+        echo "=== Looking for lib ==="
+        ls -la dart_sdk/lib/ | head -10
+    
+    - name: Build blutter
+      run: |
+        source blutter_env/bin/activate
+        cd blutter
+        
+        # 设置 DARTLIB 为 dart_sdk 根目录（包含 bin/、lib/ 等）
+        DARTLIB=$(pwd)/../dart_sdk
+        echo "DARTLIB: ${DARTLIB}"
+        
+        # 验证 DARTLIB 目录结构
+        echo "Checking DARTLIB contents:"
+        ls -la ${DARTLIB}/
+        
+        mkdir -p build && cd build
+        
+        # 运行 CMake
+        cmake .. -DCMAKE_BUILD_TYPE=Release -DDARTLIB=${DARTLIB}
+        make -j$(sysctl -n hw.ncpu)
+        
+        echo "Build artifacts:"
+        ls -la
+    
+    - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: blutter
+        name: blutter-tahoe
         path: |
           ./blutter/build/blutter
           ./blutter/build/*.dylib
+          ./blutter/build/*.so
           ./blutter/blutter.py
           ./blutter/*.py
         retention-days: 7
