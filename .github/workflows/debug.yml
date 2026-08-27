@@ -1,0 +1,35 @@
+name: Debug Dart SDK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  debug:
+    runs-on: macos-26
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        repository: 'worawit/blutter'
+    
+    - name: Download and inspect Dart SDK
+      run: |
+        curl -L -o dart.zip "https://storage.googleapis.com/dart-archive/channels/stable/release/3.5.0/sdk/dartsdk-macos-arm64-release.zip"
+        unzip dart.zip
+        rm dart.zip
+        mv dart-sdk dart_sdk
+        
+        echo "=== Full directory structure ==="
+        find dart_sdk -type d | head -30
+        echo ""
+        echo "=== All files in dart_sdk ==="
+        find dart_sdk -type f | head -50
+        echo ""
+        echo "=== Looking for libraries ==="
+        find dart_sdk -name "*.dylib" -o -name "*.a" -o -name "*.so"
+        echo ""
+        echo "=== lib directory contents ==="
+        ls -la dart_sdk/lib/ 2>/dev/null || echo "No lib directory"
+        echo ""
+        echo "=== bin directory contents ==="
+        ls -la dart_sdk/bin/
