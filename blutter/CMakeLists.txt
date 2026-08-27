@@ -1,178 +1,115 @@
-name: Build Blutter on macOS
+cmake_minimum_required (VERSION 3.20)
 
-on:
-  workflow_dispatch:
-  push:
-    branches: [ main, master ]
+project(blutter)
+if (NOT DEFINED DARTLIB)
+	message(FATAL_ERROR "Please define DARTLIB to build the Blutter project")
+endif()
+if (NOT ${DARTLIB} MATCHES "^dartvm")
+	message(FATAL_ERROR "DARTLIB name should start with 'dartvm'")
+endif()
 
-jobs:
-  build-blutter:
-    runs-on: macos-26
-    
-    steps:
-    # ============================================
-    # 1. 检出 Blutter 源码
-    # ============================================
-    - name: Checkout blutter
-      uses: actions/checkout@v4
-      with:
-        repository: 'worawit/blutter'
-    
-    # ============================================
-    # 2. 安装系统依赖
-    # ============================================
-    - name: Install system dependencies
-      run: |
-        brew update
-        brew install cmake ninja pkg-config icu4c capstone
-    
-    # ============================================
-    # 3. 设置 Python 虚拟环境
-    # ============================================
-    - name: Setup Python virtual environment
-      run: |
-        python3 -m venv blutter_env
-        source blutter_env/bin/activate
-        pip install --upgrade pip
-        pip install pyelftools requests
-    
-    # ============================================
-    # 4. 下载并设置 Dart SDK
-    # ============================================
-    - name: Download and setup Dart SDK
-      run: |
-        ARCH=$(uname -m)
-        DART_VERSION="3.5.0"
-        
-        if [ "$ARCH" = "arm64" ]; then
-          DART_URL="https://storage.googleapis.com/dart-archive/channels/stable/release/${DART_VERSION}/sdk/dartsdk-macos-arm64-release.zip"
-        else
-          DART_URL="https://storage.googleapis.com/dart-archive/channels/stable/release/${DART_VERSION}/sdk/dartsdk-macos-x64-release.zip"
-        fi
-        
-        echo "Downloading Dart SDK from: $DART_URL"
-        curl -L -o dart.zip "$DART_URL"
-        unzip dart.zip
-        rm dart.zip
-        mv dart-sdk dart_sdk
-        
-        # 复制 dart 为 dartvm（CMake 需要）
-        cp dart_sdk/bin/dart dart_sdk/bin/dartvm
-        chmod +x dart_sdk/bin/dartvm
-        
-        echo "✅ Dart SDK installed successfully"
-        ls -la dart_sdk/bin/ | grep -E "dart|dartvm"
-    
-    # ============================================
-    # 5. 🔧 修补 CMakeLists.txt - 删除 dartvm 检查
-    # ============================================
-    - name: Patch CMakeLists.txt - Remove dartvm check
-      run: |
-        cd blutter
-        
-        echo "=== Original CMakeLists.txt (lines 1-15) ==="
-        head -15 CMakeLists.txt
-        
-        # 使用 sed 删除 dartvm 检查的代码块
-        sed -i '' '/if (NOT ${DARTLIB} MATCHES "^dartvm")/,/endif()/d' CMakeLists.txt
-        
-        echo ""
-        echo "=== Patched CMakeLists.txt (lines 1-15) ==="
-        head -15 CMakeLists.txt
-        
-        # 验证修补是否成功
-        if grep -q "DARTLIB name should start with" CMakeLists.txt; then
-          echo "❌ PATCH FAILED - dartvm check still exists!"
-          exit 1
-        else
-          echo "✅ PATCH SUCCESS - dartvm check removed!"
-        fi
-    
-    # ============================================
-    # 6. 编译 Blutter
-    # ============================================
-    - name: Build blutter
-      run: |
-        source blutter_env/bin/activate
-        cd blutter
-        
-        # DARTLIB 指向 dartvm 可执行文件
-        DARTLIB=$(pwd)/../dart_sdk/bin/dartvm
-        echo "DARTLIB: ${DARTLIB}"
-        
-        if [ -f "${DARTLIB}" ]; then
-          echo "✅ dartvm found at: ${DARTLIB}"
-          file ${DARTLIB}
-        else
-          echo "❌ dartvm not found!"
-          exit 1
-        fi
-        
-        # 创建构建目录
-        mkdir -p build
-        cd build
-        
-        # CMake 配置
-        cmake .. -DCMAKE_BUILD_TYPE=Release -DDARTLIB=${DARTLIB}
-        
-        # 编译
-        make -j$(sysctl -n hw.ncpu)
-        
-        echo "✅ Build completed successfully!"
-        ls -la
-    
-    # ============================================
-    # 7. 验证构建产物
-    # ============================================
-    - name: Verify build artifacts
-      run: |
-        cd blutter/build
-        
-        if [ -f "blutter" ]; then
-          echo "✅ blutter binary found"
-          file blutter
-          ls -lh blutter
-        else
-          echo "❌ blutter binary not found!"
-          echo "Directory contents:"
-          ls -la
-          exit 1
-        fi
-    
-    # ============================================
-    # 8. 测试 Blutter
-    # ============================================
-    - name: Test blutter
-      run: |
-        source blutter_env/bin/activate
-        cd blutter
-        python3 blutter.py --help || echo "✅ Blutter Python script ready"
-    
-    # ============================================
-    # 9. 上传构建产物
-    # ============================================
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: blutter-macos-tahoe
-        path: |
-          ./blutter/build/blutter
-          ./blutter/build/*.dylib
-          ./blutter/build/*.so
-          ./blutter/blutter.py
-          ./blutter/*.py
-        retention-days: 7
-        if-no-files-found: error
-    
-    # ============================================
-    # 10. 上传调试信息（可选）
-    # ============================================
-    - name: Upload debug info
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: blutter-debug-info
-        path: |
-          ./blutter/build/CMakeCache.txt
-          ./blutter/build/CMakeFiles/
-        retention-days: 3
+set(BINNAME "${PROJECT_NAME}_${DARTLIB}${NAME_SUFFIX}")
+
+set(CMAKE_INSTALL_PREFIX "${PROJECT_SOURCE_DIR}/../bin" CACHE PATH "" FORCE)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED True)
+set(CMAKE_CXX_EXTENSIONS OFF)
+if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+	# for macOS only
+	cmake_path(GET CMAKE_CXX_COMPILER PARENT_PATH LLVM_BIN_DIR)
+	# <format> library is experimental in clang 15 and 16
+	add_compile_options(-fexperimental-library)
+	# need an extra lib for experimental library
+	add_link_options(-fexperimental-library -L${LLVM_BIN_DIR}/../lib/c++ -dead_strip)
+endif()
+
+find_package(${DARTLIB} REQUIRED PATHS "${PROJECT_SOURCE_DIR}/../packages")
+if (MSVC)
+	add_library(capstone SHARED IMPORTED)
+	set_target_properties(capstone PROPERTIES IMPORTED_LOCATION "${PROJECT_SOURCE_DIR}/../external/capstone/capstone.dll")
+	set_target_properties(capstone PROPERTIES IMPORTED_IMPLIB "${PROJECT_SOURCE_DIR}/../external/capstone/capstone_dll.lib")
+	target_include_directories(capstone INTERFACE "${PROJECT_SOURCE_DIR}/../external/capstone/include/capstone")
+else()
+	include(FindPkgConfig)
+	pkg_search_module(CAPSTONE REQUIRED capstone)
+	link_directories(${CAPSTONE_LIBDIR})
+	include_directories(AFTER ${CAPSTONE_INCLUDEDIR})
+endif()
+
+# Add source to this project's executable.
+set(SRCDIR "src")
+include(sourcelist.cmake)
+list(TRANSFORM SRCS PREPEND "${SRCDIR}/")
+add_executable(${BINNAME} ${SRCS})
+
+target_link_libraries(${BINNAME} PRIVATE ${DARTLIB} capstone)
+
+target_precompile_headers(${BINNAME} PRIVATE "${SRCDIR}/pch.h")
+
+if (MSVC)
+	# for dynamic function (exception) table
+	target_link_libraries(${BINNAME} PRIVATE ntdll)
+	# remove compiler exception handler options
+	#string(REPLACE "/EHsc" "" CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS})
+	# remove compiler RTTI option
+	string(REPLACE "/GR" "" CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS})
+	#set(cc_opts /Oy /GR- /EHs-c-)
+	if (CMAKE_GENERATOR MATCHES "Visual Studio")
+		# use SEMIDBG for enabling ASSERT macro while linking against release build of Dart VM
+		set(cc_opts /GR- /MD /D SEMIDBG)
+		set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT ${BINNAME})
+		set_target_properties(${BINNAME} PROPERTIES VS_DEBUGGER_COMMAND_ARGUMENTS "${DBG_CMD}")
+	else()
+		# assume Ninja
+		set(cc_opts /Oy /GR- /sdl- /Oi /GL /Gy /Zc:wchar_t /Zc:inline)
+		target_link_options(${BINNAME} PRIVATE /LTCG /OPT:REF /OPT:ICF)
+	endif()
+else()
+	# TODO: gcc options to remove dead code in static dartvm library
+	set(cc_opts
+		-O3 -fno-rtti
+		-fvisibility=hidden -fvisibility-inlines-hidden -fno-omit-frame-pointer
+		#-Wl,--gc-sections
+		#-fno-exceptions -Wall
+	)
+endif()
+
+get_filename_component(FRIDA_TEMPLATE_DIR "${PROJECT_SOURCE_DIR}/../scripts/" ABSOLUTE)
+set(defines NDEBUG FRIDA_TEMPLATE_DIR="${FRIDA_TEMPLATE_DIR}")
+if (OLD_MAP_SET_NAME)
+	set(defines ${defines} OLD_MAP_SET_NAME)
+	if (OLD_MAP_NO_IMMUTABLE)
+		set(defines ${defines} OLD_MAP_NO_IMMUTABLE)
+	endif()
+endif()
+if (NO_LAST_INTERNAL_ONLY_CID)
+	set(defines ${defines} NO_LAST_INTERNAL_ONLY_CID)
+endif()
+if (HAS_SHARED_CLASS_TABLE)
+	set(defines ${defines} HAS_SHARED_CLASS_TABLE)
+endif()
+if (HAS_TYPE_REF)
+	set(defines ${defines} HAS_TYPE_REF)
+endif()
+if (HAS_RECORD_TYPE)
+	set(defines ${defines} HAS_RECORD_TYPE)
+endif()
+if (NO_INIT_LATE_STATIC_FIELD)
+	set(defines ${defines} NO_INIT_LATE_STATIC_FIELD)
+endif()
+if (NO_CODE_ANALYSIS)
+	set(defines ${defines} NO_CODE_ANALYSIS)
+endif()
+if (NO_METHOD_EXTRACTOR_STUB)
+	set(defines ${defines} NO_METHOD_EXTRACTOR_STUB)
+endif()
+if (UNIFORM_INTEGER_ACCESS)
+	set(defines ${defines} UNIFORM_INTEGER_ACCESS)
+endif()
+target_compile_definitions(${BINNAME} PRIVATE ${defines})
+
+target_compile_options(${BINNAME} PRIVATE ${cc_opts})
+
+cmake_path(SET DST_DIR NORMALIZE "${PROJECT_SOURCE_DIR}/../bin")
+install (TARGETS ${BINNAME} RUNTIME DESTINATION ${DST_DIR})
