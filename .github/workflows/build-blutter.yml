@@ -1,20 +1,13 @@
-name: Build and Install Blutter
+name: Build Blutter on macOS Tahoe
 
 on:
-  push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
-  workflow_dispatch:  # 允许手动触发
+  workflow_dispatch:
 
 jobs:
   build-blutter:
-    runs-on: macos-26  # macOS Sequoia 对应 macos-15
+    runs-on: macos-26
     
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-    
     - name: Checkout blutter
       uses: actions/checkout@v4
       with:
@@ -24,39 +17,42 @@ jobs:
     - name: Install XCode Command Line Tools
       run: |
         sudo xcode-select --install || true
-        sudo xcode-select -switch /Applications/Xcode.app/Contents/Developer || true
     
     - name: Install required tools via Homebrew
       run: |
         brew update
         brew install cmake ninja pkg-config icu4c capstone
     
-    - name: Install Python dependencies
+    - name: Setup Python virtual environment
       run: |
-        pip3 install pyelftools requests
+        python3 -m venv blutter_env
+        source blutter_env/bin/activate
+        pip install --upgrade pip
+        pip install pyelftools requests
     
     - name: Build blutter
       working-directory: ./blutter
       run: |
+        source ../blutter_env/bin/activate
         mkdir -p build
         cd build
         cmake .. -DCMAKE_BUILD_TYPE=Release
         make -j$(sysctl -n hw.ncpu)
     
-    - name: Verify installation
+    - name: Test blutter
       working-directory: ./blutter
       run: |
-        ls -la build/
-        file build/blutter || file build/libblutter.dylib
-        echo "Blutter built successfully!"
+        source ../blutter_env/bin/activate
+        python3 blutter.py --help || echo "Blutter built successfully"
     
-    - name: Upload blutter artifact
+    - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: blutter-macos
+        name: blutter-tahoe
         path: |
           ./blutter/build/blutter
           ./blutter/build/*.dylib
           ./blutter/blutter.py
           ./blutter/*.py
+          ./blutter_env/  # 可选：包含虚拟环境
         retention-days: 7
