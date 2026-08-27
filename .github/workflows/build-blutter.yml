@@ -17,12 +17,12 @@ jobs:
         repository: 'worawit/blutter'
     
     # ============================================
-    # 2. 安装系统依赖（包括 Dart）
+    # 2. 安装系统依赖
     # ============================================
     - name: Install system dependencies
       run: |
         brew update
-        brew install cmake ninja pkg-config icu4c capstone dart
+        brew install cmake ninja pkg-config icu4c capstone dart-sdk
     
     # ============================================
     # 3. 验证 Dart 安装
@@ -33,7 +33,7 @@ jobs:
         dart --version
         echo ""
         echo "=== Dart prefix ==="
-        DART_PREFIX=$(brew --prefix dart)
+        DART_PREFIX=$(brew --prefix dart-sdk)
         echo "DART_PREFIX: ${DART_PREFIX}"
         echo ""
         echo "=== Dart lib directory ==="
@@ -59,7 +59,7 @@ jobs:
         pip install pyelftools requests
     
     # ============================================
-    # 5. 🔧 生成 CMakeLists.txt（使用 Homebrew Dart）
+    # 5. 🔧 生成 CMakeLists.txt
     # ============================================
     - name: Generate CMakeLists.txt
       run: |
@@ -69,10 +69,10 @@ jobs:
         cmake_minimum_required (VERSION 3.20)
         project(blutter)
         
-        # 使用 Homebrew 的 Dart 路径
-        set(DART_PREFIX "/opt/homebrew/opt/dart")
+        # 使用 Homebrew 的 dart-sdk 路径
+        set(DART_PREFIX "/opt/homebrew/opt/dart-sdk")
         
-        # 查找 Dart 库 - 搜索多个可能的位置
+        # 查找 Dart 库
         find_library(DART_LIB
           NAMES dart dart_vm
           PATHS 
@@ -92,7 +92,7 @@ jobs:
         endif()
         
         if (NOT DART_LIB)
-          message(FATAL_ERROR "Dart library not found. Please install Dart with: brew install dart")
+          message(FATAL_ERROR "Dart library not found. Please install Dart with: brew install dart-sdk")
         endif()
         
         message(STATUS "Found Dart library: ${DART_LIB}")
