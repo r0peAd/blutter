@@ -53,18 +53,24 @@ jobs:
         rm dart.zip
         mv dart-sdk dart_sdk
         
-        echo "✅ Dart SDK installed"
-        echo "=== Dart SDK structure ==="
-        ls -la dart_sdk/
+        echo "✅ Dart SDK downloaded"
+        
+        # 查找所有库文件
+        echo "=== Finding library files ==="
+        find dart_sdk -name "*.dylib" -o -name "*.a" | head -20
+        
+        # 检查 lib 目录
         echo "=== lib directory ==="
-        ls -la dart_sdk/lib/ || echo "No lib directory"
-        echo "=== bin directory ==="
-        ls -la dart_sdk/bin/
+        ls -la dart_sdk/lib/ 2>/dev/null || echo "No lib directory"
+        
+        # 检查是否有 libdart 相关文件
+        echo "=== Searching for dart libraries ==="
+        find dart_sdk -name "*dart*" -type f | head -20
     
     # ============================================
-    # 5. 🔧 完全替换 CMakeLists.txt
+    # 5. 🔧 生成正确的 CMakeLists.txt
     # ============================================
-    - name: Replace CMakeLists.txt
+    - name: Generate CMakeLists.txt
       run: |
         cd blutter
         
@@ -74,16 +80,21 @@ jobs:
         
         # 设置 Dart SDK 路径
         set(DART_SDK_PATH "${PROJECT_SOURCE_DIR}/../dart_sdk")
+        message(STATUS "DART_SDK_PATH: ${DART_SDK_PATH}")
         
-        # 使用 find_library 查找 Dart 库
+        # 查找 dart 库 - 搜索整个 SDK 目录
         find_library(DART_LIB
-          NAMES dart dart_vm
-          PATHS ${DART_SDK_PATH}/lib
+          NAMES dart dart_vm dartdart
+          PATHS 
+            ${DART_SDK_PATH}/lib
+            ${DART_SDK_PATH}/lib/arm64
+            ${DART_SDK_PATH}/lib/x64
+            ${DART_SDK_PATH}/bin
           NO_DEFAULT_PATH
         )
         
         if (NOT DART_LIB)
-          message(FATAL_ERROR "Dart library not found in ${DART_SDK_PATH}/lib")
+          message(FATAL_ERROR "Dart library not found in ${DART_SDK_PATH}")
         endif()
         
         message(STATUS "Found Dart library: ${DART_LIB}")
@@ -166,9 +177,9 @@ jobs:
         install (TARGETS ${BINNAME} RUNTIME DESTINATION ${DST_DIR})
         EOFCM
         
-        echo "✅ CMakeLists.txt replaced!"
-        echo "=== New CMakeLists.txt (first 20 lines) ==="
-        head -20 CMakeLists.txt
+        echo "✅ CMakeLists.txt generated"
+        echo "=== CMakeLists.txt (lines 1-25) ==="
+        head -25 CMakeLists.txt
     
     # ============================================
     # 6. 编译 Blutter
@@ -179,8 +190,6 @@ jobs:
         cd blutter
         
         mkdir -p build && cd build
-        
-        # 直接运行 CMake，不再需要 DARTLIB 参数
         cmake .. -DCMAKE_BUILD_TYPE=Release
         make -j$(sysctl -n hw.ncpu)
         
