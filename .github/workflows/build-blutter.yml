@@ -53,39 +53,38 @@ jobs:
         rm dart.zip
         mv dart-sdk dart_sdk
         
+        # 复制 dart 为 dartvm（保留原文件）
         cp dart_sdk/bin/dart dart_sdk/bin/dartvm
         chmod +x dart_sdk/bin/dartvm
         
-        echo "✅ Dart SDK ready"
-        ls -la dart_sdk/bin/dartvm
+        echo "✅ Dart SDK installed"
+        echo "Dart SDK structure:"
+        ls -la dart_sdk/
+        ls -la dart_sdk/bin/
+        ls -la dart_sdk/lib/
     
     # ============================================
-    # 5. 🔧 修补 CMakeLists.txt（关键步骤！）
+    # 5. 🔧 修补 CMakeLists.txt
     # ============================================
-    - name: 🔧 PATCH CMakeLists.txt
+    - name: Patch CMakeLists.txt
       run: |
         cd blutter
         
         echo "=== BEFORE PATCH ==="
-        cat CMakeLists.txt | head -20
+        head -15 CMakeLists.txt
         
-        # 方法1：使用 sed 删除
-        sed -i '' '/if (NOT ${DARTLIB} MATCHES "^dartvm")/,/endif()/d' CMakeLists.txt
-        
-        # 如果 sed 没删掉，使用 Python 强制删除
+        # 删除 dartvm 检查
         python3 << 'EOF'
         with open('CMakeLists.txt', 'r') as f:
             lines = f.readlines()
         
-        # 找到并删除 dartvm 检查块
         new_lines = []
         i = 0
         while i < len(lines):
             if 'if (NOT ${DARTLIB} MATCHES "^dartvm")' in lines[i]:
-                # 跳过直到 endif()
                 while i < len(lines) and 'endif()' not in lines[i]:
                     i += 1
-                i += 1  # 跳过 endif()
+                i += 1
                 continue
             new_lines.append(lines[i])
             i += 1
@@ -95,11 +94,9 @@ jobs:
         print("✅ Python patch applied")
         EOF
         
-        echo ""
         echo "=== AFTER PATCH ==="
-        cat CMakeLists.txt | head -20
+        head -15 CMakeLists.txt
         
-        # 验证
         if grep -q "DARTLIB name should start with" CMakeLists.txt; then
           echo "❌ PATCH FAILED!"
           exit 1
@@ -108,25 +105,45 @@ jobs:
         fi
     
     # ============================================
-    # 6. 编译 Blutter
+    # 6. 编译 Blutter（修正：DARTLIB 指向 lib 目录）
     # ============================================
     - name: Build blutter
       run: |
         source blutter_env/bin/activate
         cd blutter
         
-        DARTLIB=$(pwd)/../dart_sdk/bin/dartvm
+        # 关键修正：DARTLIB 应该指向 Dart SDK 的 lib 目录，
+        # 因为 find_package 需要找到 dartvm 的 CMake 配置文件
+        # 但 Dart SDK 没有提供 CMake 配置文件，所以我们需要用另一种方式
+        
+        # 方法：使用 find_library 或直接链接
+        # 这里我们设置 DARTLIB 为 libdart 库的路径
+        DART_SDK_PATH=$(pwd)/../dart_sdk
+        DARTLIB="${DART_SDK_PATH}/lib/libdart.dylib"
+        
+        # 如果没有 libdart.dylib，尝试 libdart_vm.dylib
+        if [ ! -f "${DARTLIB}" ]; then
+          DARTLIB="${DART_SDK_PATH}/lib/libdart_vm.dylib"
+        fi
+        
+        echo "DART_SDK_PATH: ${DART_SDK_PATH}"
         echo "DARTLIB: ${DARTLIB}"
         
         if [ -f "${DARTLIB}" ]; then
-          echo "✅ dartvm found"
+          echo "✅ Dart library found: ${DARTLIB}"
+          file ${DARTLIB}
         else
-          echo "❌ dartvm not found"
-          exit 1
+          echo "⚠️ No Dart library found, using dartvm executable"
+          DARTLIB=$(pwd)/../dart_sdk/bin/dartvm
+          echo "DARTLIB: ${DARTLIB}"
         fi
         
         mkdir -p build && cd build
-        cmake .. -DCMAKE_BUILD_TYPE=Release -DDARTLIB=${DARTLIB}
+        
+        # 设置 CMake 前缀路径，帮助 find_package 查找
+        export CMAKE_PREFIX_PATH="${DART_SDK_PATH}:${CMAKE_PREFIX_PATH}"
+        
+        cmake .. -DCMAKE_BUILD_TYPE=Release -DDARTLIB="${DARTLIB}"
         make -j$(sysctl -n hw.ncpu)
         
         echo "✅ Build completed!"
