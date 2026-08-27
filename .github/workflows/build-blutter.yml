@@ -42,32 +42,38 @@ jobs:
         rm dart.zip
         mv dart-sdk dart_sdk
         
-        echo "Dart SDK installed"
-        ls -la dart_sdk/bin/
+        # 创建 dartvm 符号链接（关键步骤）
+        cd dart_sdk/bin
+        ln -sf dart dartvm
+        cd ../..
+        
+        echo "Dart SDK installed with dartvm symlink"
+        ls -la dart_sdk/bin/ | grep -E "dart|dartvm"
     
     - name: Build blutter
       run: |
         source blutter_env/bin/activate
         cd blutter
         
-        # DARTLIB 应该指向 dartvm 可执行文件的完整路径
-        # 在 Dart SDK 中，dartvm 就是 bin/dart
-        DARTLIB=$(pwd)/../dart_sdk/bin/dart
+        # DARTLIB 指向 dartvm 符号链接
+        DARTLIB=$(pwd)/../dart_sdk/bin/dartvm
         echo "DARTLIB: ${DARTLIB}"
         
-        # 验证 dartvm 存在
+        # 验证
         if [ -f "${DARTLIB}" ]; then
-          echo "dart executable found"
-          file ${DARTLIB}
+          echo "dartvm found"
+          ls -la ${DARTLIB}
         else
-          echo "ERROR: dart executable not found"
-          ls -la $(pwd)/../dart_sdk/bin/
+          echo "ERROR: dartvm not found"
           exit 1
         fi
         
         mkdir -p build && cd build
         cmake .. -DCMAKE_BUILD_TYPE=Release -DDARTLIB=${DARTLIB}
         make -j$(sysctl -n hw.ncpu)
+        
+        echo "Build artifacts:"
+        ls -la
     
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
