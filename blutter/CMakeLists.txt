@@ -2,8 +2,6 @@ name: Build Blutter on macOS Tahoe
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ main, master ]
 
 jobs:
   build-blutter:
@@ -14,8 +12,9 @@ jobs:
       uses: actions/checkout@v4
       with:
         repository: 'worawit/blutter'
+        path: 'blutter-repo'
     
-    - name: Install system dependencies via Homebrew
+    - name: Install system dependencies
       run: |
         brew update
         brew install cmake ninja pkg-config icu4c capstone
@@ -38,69 +37,72 @@ jobs:
           DART_URL="https://storage.googleapis.com/dart-archive/channels/stable/release/${DART_VERSION}/sdk/dartsdk-macos-x64-release.zip"
         fi
         
-        echo "Downloading Dart SDK from: $DART_URL"
         curl -L -o dart.zip "$DART_URL"
         unzip dart.zip
         rm dart.zip
         mv dart-sdk dart_sdk
         
-        # 复制 dart 为 dartvm（CMake 要求文件名以 dartvm 开头）
+        # 复制 dart 为 dartvm
         cp dart_sdk/bin/dart dart_sdk/bin/dartvm
         chmod +x dart_sdk/bin/dartvm
         
-        echo "✓ Dart SDK installed"
-        ls -la dart_sdk/bin/ | grep -E "dart|dartvm"
+        echo "✓ Dart SDK ready"
+    
+    - name: Setup build environment
+      run: |
+        # 进入 blutter 源码目录（注意路径）
+        cd blutter-repo/blutter
+        
+        # 创建指向 dartvm 的符号链接（使用相对路径）
+        ln -sf ../../dart_sdk/bin/dartvm dartvm
+        chmod +x dartvm
+        
+        echo "✓ Symbolic link created"
+        ls -la dartvm
+        
+        # 获取当前目录
+        echo "Current directory: $(pwd)"
+        echo "Dartvm path: $(readlink dartvm)"
     
     - name: Build blutter
       run: |
         source blutter_env/bin/activate
-        cd blutter
         
-        # 在 blutter 目录中创建 dartvm 符号链接
-        # 这样 CMake 可以找到以 "dartvm" 开头的文件
-        ln -sf $(pwd)/../dart_sdk/bin/dartvm dartvm
-        chmod +x dartvm
+        # 进入 blutter 源码目录
+        cd blutter-repo/blutter
         
-        echo "✓ dartvm symlink created"
-        ls -la dartvm
-        
+        # 创建构建目录
         mkdir -p build
         cd build
         
-        # DARTLIB 使用相对路径 "./dartvm"，以 "dartvm" 开头
+        # DARTLIB 使用相对路径（以 dartvm 开头）
         DARTLIB="./dartvm"
         echo "DARTLIB: ${DARTLIB}"
         
-        cmake .. -DCMAKE_BUILD_TYPE=Release -DDARTLIB=${DARTLIB}
-        make -j$(sysctl -n hw.ncpu)
+        # 显示 CMake 将要检查的内容
+        echo "Testing DARTLIB value:"
+        if [[ "${DARTLIB}" =~ ^dartvm ]]; then
+          echo "✓ DARTLIB starts with 'dartvm'"
+        else
+          echo "✗ DARTLIB does not start with 'dartvm'"
+        fi
         
-        echo "✓ Build completed"
-        ls -la
+        # 运行 CMake
+        cmake .. -DCMAKE_BUILD_TYPE=Release -DDARTLIB="${DARTLIB}"
+        make -j$(sysctl -n hw.ncpu)
     
-    - name: Test blutter
+    - name: Verify build
       run: |
-        source blutter_env/bin/activate
-        cd blutter
-        python3 blutter.py --help || echo "✓ Blutter Python script ready"
+        ls -la blutter-repo/blutter/build/
+        file blutter-repo/blutter/build/blutter || echo "Build output found"
     
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: blutter-macos-tahoe
+        name: blutter-macos
         path: |
-          ./blutter/build/blutter
-          ./blutter/build/*.dylib
-          ./blutter/build/*.so
-          ./blutter/blutter.py
-          ./blutter/*.py
+          blutter-repo/blutter/build/blutter
+          blutter-repo/blutter/build/*.dylib
+          blutter-repo/blutter/blutter.py
+          blutter-repo/blutter/*.py
         retention-days: 7
-    
-    - name: Upload debug info (optional)
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: blutter-debug-info
-        path: |
-          ./blutter/build/CMakeCache.txt
-          ./blutter/build/CMakeFiles/
-        retention-days: 3
